@@ -1,4 +1,5 @@
 import os
+import subprocess
 import requests
 import json
 import concurrent.futures
@@ -7,10 +8,14 @@ import config
 output_dir = config.download_path
 if not os.path.isdir(output_dir):
     os.makedirs(output_dir)
+
 with open('collection.json') as f:
     collection = json.load(f)
 
 mods = collection['mods']
+game_domain = collection['info']['domainName']
+game_id = config.game_id
+print(f'Game: {game_domain} (id={game_id})')
 
 def download_from_url(url, save_path):
     if os.path.isfile(save_path):
@@ -23,45 +28,32 @@ def download_from_url(url, save_path):
         f.write(r.content)
 
 def get_dl_url(mod_id, file_id):
-    cookies = {
-        # You need to acquire your browser cookies once for each collection.
-        # 1. Open Chrome inspector or equivalent, and open the Network tab.
-        # 2. Attempt to manually download any mod e.g. https://www.nexusmods.com/stardewvalley/mods/5371?tab=files&file_id=56774
-        # 3. Search for "Downloads?" for API request to "Downloads?GenerateDownloadUrl"
-        # 4. Copy cURL command, and convert to Python code at https://curlconverter.com/
-        # Finally, paste the cookies here and optionally the headers below as well
-    }
-    headers = {
-        'authority': r'www.nexusmods.com',
-        'accept': r'*/*',
-        'accept-language': r'en,ja;q=0.9,zh-TW;q=0.8,zh;q=0.7,zh-CN;q=0.6',
-        'content-type': r'application/x-www-form-urlencoded; charset=UTF-8',
-        'dnt': r'1',
-        'origin': r'https://www.nexusmods.com',
-        'referer': rf'https://www.nexusmods.com/stardewvalley/mods/{mod_id}?tab=files&file_id={file_id}',
-        'sec-ch-ua': r'"Not.A/Brand";v="8", "Chromium";v="114", "Google Chrome";v="114"',
-        'sec-ch-ua-mobile': r'?0',
-        'sec-ch-ua-platform': r'"macOS"',
-        'sec-fetch-dest': r'empty',
-        'sec-fetch-mode': r'cors',
-        'sec-fetch-site': r'same-origin',
-        'user-agent': r'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36',
-        'x-requested-with': r'XMLHttpRequest',
-    }
-    data = {
-        'fid': str(file_id),
-        'game_id': '1303',
-    }
-    r = requests.post(
-        'https://www.nexusmods.com/Core/Libs/Common/Managers/Downloads?GenerateDownloadUrl',
-        cookies=cookies,
-        headers=headers,
-        data=data,
+    result = subprocess.run(
+        [
+            'curl', '-s',
+            'https://www.nexusmods.com/Core/Libs/Common/Managers/Downloads?GenerateDownloadUrl',
+            '-H', 'accept: */*',
+            '-H', 'accept-language: en-US,en;q=0.9,de;q=0.8',
+            '-H', 'content-type: application/x-www-form-urlencoded',
+            '-b', config.COOKIES,
+            '-H', 'origin: https://www.nexusmods.com',
+            '-H', f'referer: https://www.nexusmods.com/{game_domain}/mods/{mod_id}?tab=files&file_id={file_id}',
+            '-H', 'sec-ch-ua: "Google Chrome";v="147", "Not.A/Brand";v="8", "Chromium";v="147"',
+            '-H', 'sec-ch-ua-mobile: ?0',
+            '-H', 'sec-ch-ua-platform: "Linux"',
+            '-H', 'sec-fetch-dest: empty',
+            '-H', 'sec-fetch-mode: cors',
+            '-H', 'sec-fetch-site: same-origin',
+            '-H', 'user-agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36',
+            '--data-raw', f'game_id={game_id}&fid={file_id}&collection_id=0',
+        ],
+        capture_output=True, text=True,
     )
-    if r.status_code == 200:
-        return r.json()['url']
-    raise Exception(f'Bad response: {r.status}')
-    
+    try:
+        return json.loads(result.stdout)['url']
+    except Exception:
+        raise Exception(f'Bad response: {result.stdout[:200]}')
+
 def download_mod(mod_info):
     src = mod_info['source']
     mod_name = mod_info['name']
